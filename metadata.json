@@ -1,0 +1,6 @@
+{
+  "name": "TERRAVISION",
+  "description": "Global Environmental Intelligence Platform for ecological monitoring, geospatial visualization, and real-world earth observation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

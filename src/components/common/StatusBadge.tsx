@@ -17,10 +17,30 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md' })
   let colorClass = 'text-slate-400';
   const s = String(status).toUpperCase();
 
-  if (s === 'CONNECTED' || s === 'VERIFIED') {
-    label = s === 'CONNECTED' ? 'Connected' : 'Verified Quality';
+  if (s === 'CONNECTED') {
+    label = 'Connected';
     glyph = '●';
     colorClass = 'text-emerald-400';
+  } else if (s === 'VALIDATED' || s === 'VERIFIED') {
+    label = s === 'VALIDATED' ? 'Validated' : 'Validated';
+    glyph = '●';
+    colorClass = 'text-emerald-400';
+  } else if (s === 'UNVERIFIED') {
+    label = 'Unverified Raw';
+    glyph = '○';
+    colorClass = 'text-slate-400';
+  } else if (s === 'SUSPECT') {
+    label = 'Suspect Anomaly';
+    glyph = '▲';
+    colorClass = 'text-amber-400';
+  } else if (s === 'MISSING') {
+    label = 'Missing Data';
+    glyph = '◌';
+    colorClass = 'text-slate-500';
+  } else if (s === 'INVALID') {
+    label = 'Invalid Payload';
+    glyph = '✖';
+    colorClass = 'text-rose-400';
   } else if (s === 'IN_DEVELOPMENT' || s === 'PRELIMINARY') {
     label = s === 'IN_DEVELOPMENT' ? 'In Development' : 'Preliminary';
     glyph = '◐';

@@ -100,12 +100,17 @@ export const ResearchPage: React.FC<ResearchPageProps> = ({ onNavigateToSources 
 
   const handleExportResults = () => {
     if (results.length === 0) return;
-    const header = 'ID,Source,Parameter,Value,Unit,Latitude,Longitude,ObservedAt,Modality\n';
+    const header =
+      'ID,Source,Parameter,Value,Unit,RequestedLatitude,RequestedLongitude,SourceLatitude,SourceLongitude,ElevationMeters,ObservedAt,TimeStandard,Modality,QualityStatus\n';
     const rows = results
-      .map(
-        (r) =>
-          `"${r.id}","${r.sourceId}","${r.parameter}",${r.value},"${r.unit}",${r.latitude},${r.longitude},"${r.observedAt}","${r.modality}"`
-      )
+      .map((r) => {
+        const reqLat = r.requestedCoordinates?.latitude ?? r.latitude;
+        const reqLon = r.requestedCoordinates?.longitude ?? r.longitude;
+        const srcLat = r.sourceCoordinates?.latitude ?? r.latitude;
+        const srcLon = r.sourceCoordinates?.longitude ?? r.longitude;
+        const elev = r.sourceCoordinates?.elevationMeters ?? r.elevationMeters ?? '';
+        return `"${r.id}","${r.sourceId}","${r.parameter}",${r.value},"${r.unit}",${reqLat},${reqLon},${srcLat},${srcLon},"${elev}","${r.observedAt}","${r.timeStandard || 'UTC'}","${r.modality}","${r.qualityStatus}"`;
+      })
       .join('\n');
 
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
@@ -281,8 +286,8 @@ export const ResearchPage: React.FC<ResearchPageProps> = ({ onNavigateToSources 
             {results.length > 0 ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                  <span>Showing {results.length} verified observation records</span>
-                  <span className="text-emerald-400">● Verified Live Data</span>
+                  <span>Showing {results.length} validated observation records</span>
+                  <span className="text-emerald-400">● Validated Provider Data</span>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -293,27 +298,53 @@ export const ResearchPage: React.FC<ResearchPageProps> = ({ onNavigateToSources 
                         <th className="p-2.5">Value</th>
                         <th className="p-2.5">Unit</th>
                         <th className="p-2.5">Modality</th>
+                        <th className="p-2.5">Coords (Req vs Grid)</th>
+                        <th className="p-2.5">Quality</th>
                         <th className="p-2.5">Source</th>
-                        <th className="p-2.5">Observed (UTC)</th>
+                        <th className="p-2.5">Observed</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                      {results.map((r) => (
-                        <tr key={r.id} className="hover:bg-slate-900/40 transition-colors">
-                          <td className="p-2.5 font-bold text-cyan-300">{r.parameter.toUpperCase()}</td>
-                          <td className="p-2.5 font-bold tabular-nums text-slate-100">
-                            {r.value !== null ? r.value.toFixed(1) : '--'}
-                          </td>
-                          <td className="p-2.5 text-slate-400">{r.unit}</td>
-                          <td className="p-2.5">
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
-                              {r.modality}
-                            </span>
-                          </td>
-                          <td className="p-2.5 text-slate-400 truncate max-w-[140px]">{r.sourceName}</td>
-                          <td className="p-2.5 text-slate-400">{new Date(r.observedAt).toLocaleString()}</td>
-                        </tr>
-                      ))}
+                      {results.map((r) => {
+                        const reqLat = (r.requestedCoordinates?.latitude ?? r.latitude).toFixed(2);
+                        const reqLon = (r.requestedCoordinates?.longitude ?? r.longitude).toFixed(2);
+                        const srcLat = (r.sourceCoordinates?.latitude ?? r.latitude).toFixed(2);
+                        const srcLon = (r.sourceCoordinates?.longitude ?? r.longitude).toFixed(2);
+                        return (
+                          <tr key={r.id} className="hover:bg-slate-900/40 transition-colors">
+                            <td className="p-2.5 font-bold text-cyan-300">{r.parameter.toUpperCase()}</td>
+                            <td className="p-2.5 font-bold tabular-nums text-slate-100">
+                              {r.value !== null ? r.value.toFixed(1) : '--'}
+                            </td>
+                            <td className="p-2.5 text-slate-400">{r.unit}</td>
+                            <td className="p-2.5">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                                {r.modality}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-slate-400 text-[11px] whitespace-nowrap">
+                              <span className="text-slate-300">{reqLat},{reqLon}</span>
+                              <span className="text-slate-500"> → </span>
+                              <span className="text-amber-300">{srcLat},{srcLon}</span>
+                            </td>
+                            <td className="p-2.5">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                                r.qualityStatus === 'VALIDATED'
+                                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60'
+                                  : r.qualityStatus === 'SUSPECT'
+                                  ? 'bg-amber-950/60 text-amber-400 border border-amber-800/60'
+                                  : r.qualityStatus === 'MISSING'
+                                  ? 'bg-slate-900 text-slate-500 border border-slate-800'
+                                  : 'bg-slate-900 text-slate-300 border border-slate-800'
+                              }`}>
+                                {r.qualityStatus}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-slate-400 truncate max-w-[120px]">{r.sourceName}</td>
+                            <td className="p-2.5 text-slate-400">{new Date(r.observedAt).toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

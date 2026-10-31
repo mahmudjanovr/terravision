@@ -7,7 +7,18 @@
  * Phase 2 extends this with explicit data modalities and provider-independent models.
  */
 
+export interface GeoCoordinates {
+  latitude: number;
+  longitude: number;
+  elevationMeters?: number;
+}
+
 export type QualityStatus = 
+  | 'VALIDATED'
+  | 'UNVERIFIED'
+  | 'SUSPECT'
+  | 'MISSING'
+  | 'INVALID'
   | 'verified'
   | 'unverified'
   | 'preliminary'
@@ -89,6 +100,8 @@ export interface EnvironmentalObservation {
   unit: string;
   latitude: number;
   longitude: number;
+  requestedCoordinates?: GeoCoordinates;
+  sourceCoordinates?: GeoCoordinates | null;
   observedAt: string; // ISO 8601 UTC
   fetchedAt: string;  // ISO 8601 UTC
   modality: DataModality;
@@ -166,6 +179,8 @@ export interface TimeSeriesDataset {
   modality: DataModality;
   unit: string;
   timeStandard?: 'UTC' | 'LST' | string;
+  requestedCoordinates?: GeoCoordinates;
+  sourceCoordinates?: GeoCoordinates | null;
   points: TimeSeriesPoint[];
 }
 

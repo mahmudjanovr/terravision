@@ -36,9 +36,11 @@ export interface ${source.shortCode.replace(/[^a-zA-Z]/g, '')}ObservationPayload
   fetched_at: string;   // Ingestion retrieval timestamp (UTC)
   time_standard: "UTC" | "LST"; // Explicit time standard
   modality: "${source.modality}";
-  latitude: number;     // WGS84 [-90.0, 90.0]
-  longitude: number;    // WGS84 [-180.0, 180.0]
-  quality_status: "verified" | "preliminary" | "sensor_maintenance";
+  latitude: number;     // Latitude [-90.0, 90.0] (backward compatible)
+  longitude: number;    // Longitude [-180.0, 180.0]
+  requested_coordinates: { latitude: number; longitude: number };
+  source_coordinates?: { latitude: number; longitude: number; elevation_meters?: number };
+  quality_status: "VALIDATED" | "UNVERIFIED" | "SUSPECT" | "MISSING" | "INVALID";
   raw_metadata: {
     dataset_or_model?: string;
     instrument_type?: string;

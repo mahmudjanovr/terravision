@@ -75,7 +75,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           </h4>
         </div>
 
-        <StatusBadge status={hasValue ? 'verified' : loading ? 'pending' : 'not_integrated'} size="sm" />
+        <StatusBadge status={hasValue ? 'VALIDATED' : loading ? 'pending' : 'not_integrated'} size="sm" />
       </div>
 
       <div className="mt-3 flex items-baseline">

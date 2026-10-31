@@ -253,8 +253,8 @@ export const HistoricalReanalysisPanel: React.FC<HistoricalReanalysisPanelProps>
             onChange={(e) => setModel(e.target.value as ReanalysisModel)}
             className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-amber-400"
           >
-            <option value="era5">ECMWF ERA5 (0.25° / 31 km Global)</option>
-            <option value="era5_land">ECMWF ERA5-Land (0.1° / 9 km Land)</option>
+            <option value="era5">ECMWF ERA5 (0.25° / ~25 km Global)</option>
+            <option value="era5_land">ECMWF ERA5-Land (0.1° / ~11 km Land)</option>
           </select>
         </div>
 
@@ -398,7 +398,7 @@ export const HistoricalReanalysisPanel: React.FC<HistoricalReanalysisPanelProps>
             <div className="p-3 bg-slate-900/60 rounded border border-slate-800">
               <div className="text-slate-500 text-[10px]">HOURLY POINTS RETRIEVED</div>
               <div className="text-base font-bold text-cyan-400 mt-0.5">
-                {validPoints.length} verified
+                {validPoints.length} validated
               </div>
             </div>
           </div>
@@ -451,12 +451,26 @@ export const HistoricalReanalysisPanel: React.FC<HistoricalReanalysisPanelProps>
                 <span className="text-cyan-300 font-bold">UTC (Documented Standard)</span>
               </div>
               <div>
-                <span className="text-slate-500 block">COORDINATES:</span>
+                <span className="text-slate-500 block">REQUESTED COORDS:</span>
                 <span className="text-slate-200">{latitude.toFixed(4)}° N, {longitude.toFixed(4)}° E</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">MODEL GRID CENTROID:</span>
+                <span className="text-amber-300 font-semibold">
+                  {(data?.sourceCoordinates?.latitude ?? data?.latitude ?? latitude).toFixed(4)}° N,{' '}
+                  {(data?.sourceCoordinates?.longitude ?? data?.longitude ?? longitude).toFixed(4)}° E
+                  {data?.elevationMeters !== undefined ? ` (${data.elevationMeters}m)` : ''}
+                </span>
               </div>
               <div>
                 <span className="text-slate-500 block">DATE RANGE:</span>
                 <span className="text-slate-200">{startDate} to {endDate}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">OBSERVATION COUNT:</span>
+                <span className="text-slate-200 font-semibold">
+                  {data?.totalReturnedObservations ?? (data?.observations?.length || 0)} hourly points ({data?.hourlyArrayLength || 0} steps)
+                </span>
               </div>
               <div>
                 <span className="text-slate-500 block">RETRIEVAL TIMESTAMP:</span>
@@ -464,7 +478,7 @@ export const HistoricalReanalysisPanel: React.FC<HistoricalReanalysisPanelProps>
               </div>
               <div>
                 <span className="text-slate-500 block">QUALITY STATUS:</span>
-                <span className="text-emerald-400 font-bold">verified (ERA5 4D-Var)</span>
+                <span className="text-emerald-400 font-bold">VALIDATED (ERA5 4D-Var Reanalysis)</span>
               </div>
             </div>
           </div>

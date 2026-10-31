@@ -18,16 +18,49 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json());
 
+// Health Checks for AI Studio platform and internal probes
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', service: 'terravision-web' });
+});
+
 // API Health Check
 app.get('/api/health', (req, res) => {
   const hasKey = Boolean(process.env.OPENAQ_API_KEY && process.env.OPENAQ_API_KEY.trim() !== '');
   res.json({
     status: 'ok',
-    phase: 'Phase 2.2: Historical Climate Data & Final Data Integrity',
+    phase: 'Phase 3.1: Backend Infrastructure Evolution (FastAPI Foundation)',
     hasOpenAqKey: hasKey,
     openAqStatus: hasKey ? 'CONFIGURED' : 'NOT_CONFIGURED',
+    fastApiProxyTarget: process.env.FASTAPI_URL || 'http://127.0.0.1:8000',
     timestamp: new Date().toISOString(),
   });
+});
+
+// Proxy to FastAPI v1 REST API (forward-compatibility layer)
+const FASTAPI_URL = process.env.FASTAPI_URL || 'http://127.0.0.1:8000';
+app.use('/api/v1', async (req, res) => {
+  try {
+    const targetUrl = `${FASTAPI_URL}/api/v1${req.url}`;
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+    if (req.headers['content-type']) {
+      headers['Content-Type'] = req.headers['content-type'] as string;
+    }
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: ['POST', 'PUT', 'PATCH'].includes(req.method) ? JSON.stringify(req.body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    return res.status(response.status).json(data);
+  } catch (err) {
+    return res.status(503).json({
+      error: 'FASTAPI_BACKEND_OFFLINE',
+      message: 'FastAPI backend service is not running or unreachable on port 8000.',
+      target: FASTAPI_URL,
+    });
+  }
 });
 
 // Secure OpenAQ v3 Proxy
@@ -105,6 +138,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
+        hmr: false,
         host: '0.0.0.0',
         port: PORT,
       },

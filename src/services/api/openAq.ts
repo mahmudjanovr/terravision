@@ -15,7 +15,9 @@ import {
   MonitoringStation,
   GroundObservation,
   QualityStatus,
+  GeoCoordinates,
 } from '../../types/environmental';
+import { evaluateQualityStatus } from '../../utils/quality';
 
 export interface OpenAQLocationResult {
   id: number;
@@ -165,6 +167,12 @@ export async function fetchOpenAQStationLatest(
 
   const observations: GroundObservation[] = results.map((item) => {
     const paramCode = item.parameter.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const numVal = typeof item.value === 'number' && !Number.isNaN(item.value) ? item.value : null;
+    const qualityStatus = evaluateQualityStatus(numVal, paramCode, { isRawLowCostSensor: true });
+    const stationCoords: GeoCoordinates = {
+      latitude: item.coordinates?.latitude || 0,
+      longitude: item.coordinates?.longitude || 0,
+    };
 
     return {
       id: `openaq-obs-${numericId}-${item.sensorsId}-${item.datetime.utc}`,
@@ -172,14 +180,16 @@ export async function fetchOpenAQStationLatest(
       sourceName: 'OpenAQ Global Network (Ground Sensor)',
       stationId: `openaq-station-${numericId}`,
       parameter: paramCode,
-      value: typeof item.value === 'number' && !Number.isNaN(item.value) ? item.value : null,
+      value: numVal,
       unit: item.parameter.units || 'µg/m³',
-      latitude: item.coordinates?.latitude || 0,
-      longitude: item.coordinates?.longitude || 0,
+      latitude: stationCoords.latitude,
+      longitude: stationCoords.longitude,
+      requestedCoordinates: stationCoords,
+      sourceCoordinates: stationCoords,
       observedAt: item.datetime.utc,
       fetchedAt,
       modality: 'GROUND_OBSERVATION',
-      qualityStatus: 'verified' as QualityStatus,
+      qualityStatus,
     };
   });
 

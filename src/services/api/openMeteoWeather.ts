@@ -14,8 +14,10 @@ import {
   TimeSeriesDataset,
   QualityStatus,
   DataModality,
+  GeoCoordinates,
 } from '../../types/environmental';
 import { getParameterByCode } from '../../utils/parameters';
+import { evaluateQualityStatus } from '../../utils/quality';
 
 export interface OpenMeteoWeatherResponse {
   latitude: number;
@@ -52,6 +54,8 @@ export interface WeatherDataResult {
   latitude: number;
   longitude: number;
   elevationMeters: number;
+  requestedCoordinates: GeoCoordinates;
+  sourceCoordinates: GeoCoordinates;
   timezone: string;
   currentObservations: EnvironmentalObservation[];
   hourlyDatasets: Record<string, TimeSeriesDataset>;
@@ -114,10 +118,19 @@ export async function fetchOpenMeteoWeather(
     { code: 'surface_pressure', apiKey: 'surface_pressure', modality: 'MODEL_DERIVED' },
   ];
 
+  const requestedCoordinates: GeoCoordinates = { latitude, longitude };
+  const sourceCoordinates: GeoCoordinates = {
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    elevationMeters: raw.elevation,
+  };
+
   for (const item of mappings) {
     const val = raw.current ? (raw.current[item.apiKey] as number) : null;
     const paramDef = getParameterByCode(item.code);
     const unit = raw.current_units?.[item.apiKey] || paramDef?.unit || '';
+    const numericVal = typeof val === 'number' && !Number.isNaN(val) ? val : null;
+    const qualityStatus = evaluateQualityStatus(numericVal, item.code);
 
     currentObservations.push({
       id: `om-weather-${item.code}-${raw.current?.time || Date.now()}`,
@@ -125,15 +138,17 @@ export async function fetchOpenMeteoWeather(
       sourceName: 'Open-Meteo Weather (NWP Model)',
       datasetOrModel: 'NWP Operational Analysis',
       parameter: item.code,
-      value: typeof val === 'number' && !Number.isNaN(val) ? val : null,
+      value: numericVal,
       unit,
       latitude: raw.latitude,
       longitude: raw.longitude,
+      requestedCoordinates,
+      sourceCoordinates,
       observedAt: currentObsTime,
       fetchedAt,
       timeStandard: 'UTC',
       modality: item.modality,
-      qualityStatus: 'verified',
+      qualityStatus,
       elevationMeters: raw.elevation,
     });
   }
@@ -167,6 +182,8 @@ export async function fetchOpenMeteoWeather(
       modality: 'FORECAST',
       unit: raw.hourly_units?.[item.apiKey] || paramDef.unit,
       timeStandard: 'UTC',
+      requestedCoordinates,
+      sourceCoordinates,
       points,
     };
   }
@@ -175,6 +192,8 @@ export async function fetchOpenMeteoWeather(
     latitude: raw.latitude,
     longitude: raw.longitude,
     elevationMeters: raw.elevation,
+    requestedCoordinates,
+    sourceCoordinates,
     timezone: raw.timezone,
     currentObservations,
     hourlyDatasets,

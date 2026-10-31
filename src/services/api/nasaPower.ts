@@ -14,8 +14,10 @@ import {
   EnvironmentalObservation,
   TimeSeriesDataset,
   DataModality,
+  GeoCoordinates,
 } from '../../types/environmental';
 import { getParameterByCode } from '../../utils/parameters';
+import { evaluateQualityStatus } from '../../utils/quality';
 
 export interface NasaPowerDailyResponse {
   type: string;
@@ -48,6 +50,8 @@ export interface NasaPowerResult {
   latitude: number;
   longitude: number;
   elevationMeters?: number;
+  requestedCoordinates: GeoCoordinates;
+  sourceCoordinates: GeoCoordinates;
   observations: EnvironmentalObservation[];
   datasets: Record<string, TimeSeriesDataset>;
   fetchedAt: string;
@@ -191,6 +195,13 @@ export async function fetchNasaPowerDaily(
       };
     });
 
+    const requestedCoordinates: GeoCoordinates = { latitude, longitude };
+    const sourceCoordinates: GeoCoordinates = {
+      latitude: raw.geometry?.coordinates?.[1] ?? latitude,
+      longitude: raw.geometry?.coordinates?.[0] ?? longitude,
+      elevationMeters: raw.geometry?.coordinates?.[2],
+    };
+
     if (paramDef) {
       datasets[item.ourCode] = {
         parameter: paramDef,
@@ -199,6 +210,8 @@ export async function fetchNasaPowerDaily(
         modality: item.modality,
         unit: item.unit,
         timeStandard: returnedTimeStandard,
+        requestedCoordinates,
+        sourceCoordinates,
         points,
       };
     }
@@ -226,6 +239,8 @@ export async function fetchNasaPowerDaily(
           ? `${year}-${month}-${day}T00:00:00Z`
           : `${year}-${month}-${day}T00:00:00`; // LST must never be labeled as UTC
 
+      const qualityStatus = evaluateQualityStatus(validValue, item.ourCode);
+
       observations.push({
         id: `nasa-${item.ourCode}-${validDateKey}-${returnedTimeStandard.toLowerCase()}`,
         sourceId: 'nasa-power',
@@ -236,19 +251,30 @@ export async function fetchNasaPowerDaily(
         unit: item.unit,
         latitude: raw.geometry?.coordinates?.[1] ?? latitude,
         longitude: raw.geometry?.coordinates?.[0] ?? longitude,
+        requestedCoordinates,
+        sourceCoordinates,
         observedAt: observedTimestamp,
         fetchedAt,
         timeStandard: returnedTimeStandard,
         modality: item.modality,
-        qualityStatus: 'verified',
+        qualityStatus,
       });
     }
   }
+
+  const requestedCoordinates: GeoCoordinates = { latitude, longitude };
+  const sourceCoordinates: GeoCoordinates = {
+    latitude: raw.geometry?.coordinates?.[1] ?? latitude,
+    longitude: raw.geometry?.coordinates?.[0] ?? longitude,
+    elevationMeters: raw.geometry?.coordinates?.[2],
+  };
 
   const result: NasaPowerResult = {
     latitude: raw.geometry?.coordinates?.[1] ?? latitude,
     longitude: raw.geometry?.coordinates?.[0] ?? longitude,
     elevationMeters: raw.geometry?.coordinates?.[2],
+    requestedCoordinates,
+    sourceCoordinates,
     observations,
     datasets,
     fetchedAt,

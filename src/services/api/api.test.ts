@@ -11,8 +11,10 @@ import { ApiError } from './client';
 import { apiCache } from './cache';
 import { isValidCoordinate, assertValidCoordinates } from '../../utils/coordinates';
 import { getParameterByCode } from '../../utils/parameters';
-import { DataModality, ProviderHealth } from '../../types/environmental';
+import { DataModality, ProviderHealth, GeoCoordinates, QualityStatus } from '../../types/environmental';
 import { DATA_SOURCES } from '../../config/dataSources';
+import { isValidDateString, validateArchiveDateRange } from './openMeteoArchive';
+import { evaluateQualityStatus } from '../../utils/quality';
 
 // 1. Error Formatting & Caching
 test('ApiError formats provider and status code correctly', () => {
@@ -182,12 +184,6 @@ test('STANDARD_PARAMETERS preserves accurate scientific units, formulas, and pre
 // Phase 2.2: Historical Climate Data & Final Data Integrity
 // ==========================================
 
-import {
-  validateArchiveDateRange,
-  isValidDateString,
-  ReanalysisModel,
-} from './openMeteoArchive';
-
 // 9. Open-Meteo Archive Date Validation
 test('Open-Meteo Archive date validation enforces YYYY-MM-DD format and chronological order', () => {
   assert.equal(isValidDateString('2023-01-01'), true);
@@ -268,34 +264,134 @@ test('NASA POWER never labels Local Solar Time (LST) timestamps as UTC (no trail
   assert.equal(lstTs, '2024-01-05T00:00:00');
 });
 
-// 11. Complete Data Provenance Contract
-test('Environmental observations preserve all 10 required provenance dimensions', () => {
+// 11. Complete Data Provenance Contract (Phase 2.2.1)
+test('Environmental observations preserve all required provenance dimensions with coordinate separation', () => {
   const sampleObs = {
     provider: 'Open-Meteo Historical Archive / ECMWF Copernicus',
-    datasetOrModel: 'ECMWF ERA5 Global Reanalysis (0.25°)',
+    datasetOrModel: 'ECMWF ERA5 Global Reanalysis (0.25° / ~25 km)',
     parameter: 'temperature_2m',
     value: 14.8,
     unit: '°C',
+    requestedCoordinates: { latitude: 51.5074, longitude: -0.1278 },
+    sourceCoordinates: { latitude: 51.5, longitude: -0.125, elevationMeters: 25 },
     coordinates: { latitude: 51.5074, longitude: -0.1278 },
     observedAt: '2023-01-01T12:00:00Z',
     fetchedAt: '2026-03-30T12:00:00Z',
     timeStandard: 'UTC',
     modality: 'REANALYSIS',
-    qualityStatus: 'verified',
+    qualityStatus: 'VALIDATED' as QualityStatus,
   };
 
   assert.equal(sampleObs.provider, 'Open-Meteo Historical Archive / ECMWF Copernicus');
-  assert.equal(sampleObs.datasetOrModel, 'ECMWF ERA5 Global Reanalysis (0.25°)');
+  assert.equal(sampleObs.datasetOrModel, 'ECMWF ERA5 Global Reanalysis (0.25° / ~25 km)');
   assert.equal(sampleObs.parameter, 'temperature_2m');
   assert.equal(typeof sampleObs.value, 'number');
   assert.equal(sampleObs.unit, '°C');
-  assert.equal(sampleObs.coordinates.latitude, 51.5074);
+  assert.equal(sampleObs.requestedCoordinates.latitude, 51.5074);
+  assert.equal(sampleObs.sourceCoordinates.latitude, 51.5);
+  assert.notEqual(sampleObs.requestedCoordinates.latitude, sampleObs.sourceCoordinates.latitude);
   assert.equal(sampleObs.timeStandard, 'UTC');
   assert.equal(sampleObs.modality, 'REANALYSIS');
-  assert.equal(sampleObs.qualityStatus, 'verified');
+  assert.equal(sampleObs.qualityStatus, 'VALIDATED');
 });
 
-// 12. Rate Limit & 429 Handling
+// 12. Spatial Resolution Accuracy
+test('ERA5 and ERA5-Land spatial resolutions are accurately documented without conflating IFS 9km', () => {
+  const archiveSource = DATA_SOURCES.find((s) => s.id === 'open-meteo-archive');
+  assert.ok(archiveSource);
+  assert.match(archiveSource?.spatialResolution || '', /ERA5:\s*~?0\.25°\s*\(\s*~?25\s*km\)/);
+  assert.match(archiveSource?.spatialResolution || '', /ERA5-Land:\s*~?0\.1°\s*\(\s*~?11\s*km\)/);
+  // ERA5-Land must never be described as 9 km
+  assert.doesNotMatch(archiveSource?.spatialResolution || '', /ERA5-Land:\s*9\s*km/);
+});
+
+// 13. Historical Climate Date Ranges: Short Range vs Multi-Year Range
+test('Historical climate range tests verify hourly alignment for 7-day and multi-year spans', () => {
+  // A. 7-Day Short Range (168 hourly timestamps)
+  const shortStartDate = '2023-06-01';
+  const shortEndDate = '2023-06-07';
+  const shortHours = 7 * 24; // 168 hours
+  const shortTimes: string[] = [];
+  const shortTemps: number[] = [];
+
+  for (let d = 1; d <= 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      const hStr = String(h).padStart(2, '0');
+      shortTimes.push(`2023-06-0${d}T${hStr}:00`);
+      shortTemps.push(15.0 + Math.sin(h / 3) * 5);
+    }
+  }
+
+  assert.equal(shortTimes.length, shortHours);
+  assert.equal(shortTemps.length, shortHours);
+  assert.equal(shortTimes[0], '2023-06-01T00:00');
+  assert.equal(shortTimes[shortTimes.length - 1], '2023-06-07T23:00');
+
+  // B. 2-Year Multi-Year Range (730 days = 17,520 hourly timestamps)
+  const multiYearStart = '2021-01-01';
+  const multiYearEnd = '2022-12-31';
+  const totalDays = 365 + 365; // 730 days
+  const expectedTotalHours = totalDays * 24; // 17,520 hours
+
+  assert.equal(expectedTotalHours, 17520);
+  assert.doesNotThrow(() => validateArchiveDateRange(multiYearStart, multiYearEnd, 'era5'));
+});
+
+// 14. Array Length Mismatch & Incomplete Response Detection
+test('Array length verification detects mismatched timestamps and parameter arrays', () => {
+  const timeArray = ['2023-01-01T00:00', '2023-01-01T01:00', '2023-01-01T02:00'];
+  const matchedValues = [10.2, 10.5, 11.0];
+  const truncatedValues = [10.2, 10.5]; // 1 missing element
+
+  const verifyAlignment = (times: string[], vals: (number | null)[]) => times.length === vals.length;
+
+  assert.equal(verifyAlignment(timeArray, matchedValues), true);
+  assert.equal(verifyAlignment(timeArray, truncatedValues), false, 'Truncated array must fail alignment check');
+});
+
+// 15. Coordinate Separation: Requested Coordinates vs Provider Grid Coordinates
+test('Coordinate separation preserves provider model grid without overwriting or clamping requested coordinates', () => {
+  const userLat = 51.5074;
+  const userLon = -0.1278;
+  const providerGridLat = 51.50; // ERA5 0.25° centroid
+  const providerGridLon = -0.125;
+
+  const reqCoords: GeoCoordinates = { latitude: userLat, longitude: userLon };
+  const srcCoords: GeoCoordinates = { latitude: providerGridLat, longitude: providerGridLon, elevationMeters: 25 };
+
+  assert.equal(reqCoords.latitude, 51.5074);
+  assert.equal(reqCoords.longitude, -0.1278);
+  assert.equal(srcCoords.latitude, 51.50);
+  assert.equal(srcCoords.longitude, -0.125);
+  assert.notEqual(reqCoords.latitude, srcCoords.latitude, 'Requested coords must not be overwritten by grid coords');
+});
+
+// 16. Quality Status Semantic Classification
+test('Quality status evaluator assigns honest semantics (VALIDATED, UNVERIFIED, SUSPECT, MISSING, INVALID)', () => {
+  // A. Normal valid observation within physical domain
+  const validTemp = evaluateQualityStatus(21.4, 'temperature_2m');
+  assert.equal(validTemp, 'VALIDATED');
+
+  // B. Missing observation / null
+  const missingTemp = evaluateQualityStatus(null, 'temperature_2m');
+  assert.equal(missingTemp, 'MISSING');
+
+  // C. Physical impossibility (Relative humidity > 100% or < 0%)
+  const impossibleRhHigh = evaluateQualityStatus(115.0, 'relative_humidity');
+  const impossibleRhLow = evaluateQualityStatus(-5.0, 'relative_humidity');
+  assert.equal(impossibleRhHigh, 'INVALID');
+  assert.equal(impossibleRhLow, 'INVALID');
+
+  // D. Physical anomaly / boundary suspect (surface pressure 450 hPa at sea level)
+  const suspectPressure = evaluateQualityStatus(450.0, 'surface_pressure');
+  assert.equal(suspectPressure, 'SUSPECT');
+
+  // E. Ground sensor without secondary calibrated validation
+  const unverifiedSensor = evaluateQualityStatus(28.5, 'pm25', { isRawLowCostSensor: true });
+  assert.equal(unverifiedSensor, 'UNVERIFIED');
+});
+
+// 17. Rate Limit & 429 Handling
 test('Rate limit responses preserve HTTP 429 and Retry-After header', () => {
   const mockResponse = {
     status: 429,

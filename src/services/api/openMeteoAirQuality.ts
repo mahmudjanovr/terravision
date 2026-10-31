@@ -14,8 +14,10 @@ import {
   EnvironmentalObservation,
   TimeSeriesDataset,
   DataModality,
+  GeoCoordinates,
 } from '../../types/environmental';
 import { getParameterByCode } from '../../utils/parameters';
+import { evaluateQualityStatus } from '../../utils/quality';
 
 export interface OpenMeteoAirQualityResponse {
   latitude: number;
@@ -52,6 +54,8 @@ export interface AirQualityModelResult {
   latitude: number;
   longitude: number;
   elevationMeters: number;
+  requestedCoordinates: GeoCoordinates;
+  sourceCoordinates: GeoCoordinates;
   timezone: string;
   currentObservations: EnvironmentalObservation[];
   hourlyDatasets: Record<string, TimeSeriesDataset>;
@@ -109,11 +113,19 @@ export async function fetchOpenMeteoAirQuality(
   ];
 
   const currentObservations: EnvironmentalObservation[] = [];
+  const requestedCoordinates: GeoCoordinates = { latitude, longitude };
+  const sourceCoordinates: GeoCoordinates = {
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    elevationMeters: raw.elevation,
+  };
 
   for (const item of mappings) {
     const val = raw.current ? (raw.current[item.apiKey] as number) : null;
     const paramDef = getParameterByCode(item.code);
     const unit = raw.current_units?.[item.apiKey] || paramDef?.unit || 'µg/m³';
+    const numericVal = typeof val === 'number' && !Number.isNaN(val) ? val : null;
+    const qualityStatus = evaluateQualityStatus(numericVal, item.code);
 
     currentObservations.push({
       id: `om-aq-${item.code}-${raw.current?.time || Date.now()}`,
@@ -121,15 +133,17 @@ export async function fetchOpenMeteoAirQuality(
       sourceName: 'Open-Meteo Atmospheric Chemistry Model (CAMS/SILAM)',
       datasetOrModel: 'Copernicus CAMS & SILAM Chemistry Model',
       parameter: item.code,
-      value: typeof val === 'number' && !Number.isNaN(val) ? val : null,
+      value: numericVal,
       unit,
       latitude: raw.latitude,
       longitude: raw.longitude,
+      requestedCoordinates,
+      sourceCoordinates,
       observedAt: currentObsTime,
       fetchedAt,
       timeStandard: 'UTC',
       modality: 'MODEL_DERIVED' as DataModality,
-      qualityStatus: 'verified',
+      qualityStatus,
       elevationMeters: raw.elevation,
     });
   }
@@ -163,6 +177,8 @@ export async function fetchOpenMeteoAirQuality(
       modality: 'MODEL_DERIVED',
       unit: raw.hourly_units?.[item.apiKey] || paramDef.unit,
       timeStandard: 'UTC',
+      requestedCoordinates,
+      sourceCoordinates,
       points,
     };
   }
@@ -171,6 +187,8 @@ export async function fetchOpenMeteoAirQuality(
     latitude: raw.latitude,
     longitude: raw.longitude,
     elevationMeters: raw.elevation,
+    requestedCoordinates,
+    sourceCoordinates,
     timezone: raw.timezone,
     currentObservations,
     hourlyDatasets,

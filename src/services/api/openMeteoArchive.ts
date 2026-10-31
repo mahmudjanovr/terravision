@@ -14,8 +14,10 @@ import {
   EnvironmentalObservation,
   TimeSeriesDataset,
   DataModality,
+  GeoCoordinates,
 } from '../../types/environmental';
 import { getParameterByCode } from '../../utils/parameters';
+import { evaluateQualityStatus } from '../../utils/quality';
 
 export type ReanalysisModel = 'era5' | 'era5_land';
 
@@ -40,9 +42,11 @@ export interface OpenMeteoArchiveResponse {
 }
 
 export interface HistoricalReanalysisResult {
-  latitude: number;
-  longitude: number;
+  latitude: number; // Provider grid latitude (retained for backward compatibility)
+  longitude: number; // Provider grid longitude (retained for backward compatibility)
   elevationMeters: number;
+  requestedCoordinates: GeoCoordinates;
+  sourceCoordinates: GeoCoordinates;
   model: ReanalysisModel;
   modelDisplayName: string;
   startDate: string;
@@ -52,6 +56,10 @@ export interface HistoricalReanalysisResult {
   datasets: Record<string, TimeSeriesDataset>;
   observations: EnvironmentalObservation[];
   fetchedAt: string;
+  totalReturnedObservations: number;
+  hourlyArrayLength: number;
+  arrayAlignmentVerified: boolean;
+  dateRangeVerified: boolean;
   rawResponse?: OpenMeteoArchiveResponse;
 }
 
@@ -159,13 +167,30 @@ export async function fetchHistoricalReanalysis(
   const fetchedAt = new Date().toISOString();
   const modelDisplayName =
     model === 'era5_land'
-      ? 'ECMWF ERA5-Land Reanalysis (0.1° / 9 km)'
-      : 'ECMWF ERA5 Global Reanalysis (0.25° / 31 km)';
+      ? 'ECMWF ERA5-Land Reanalysis (0.1° / ~11 km)'
+      : 'ECMWF ERA5 Global Reanalysis (0.25° / ~25 km)';
 
   const datasets: Record<string, TimeSeriesDataset> = {};
   const observations: EnvironmentalObservation[] = [];
 
   const timeArray = raw.hourly?.time || [];
+  const hourlyArrayLength = timeArray.length;
+
+  // Verify alignment and date bounds
+  let arrayAlignmentVerified = true;
+  let dateRangeVerified = false;
+  if (hourlyArrayLength > 0) {
+    const firstTimestampDate = timeArray[0].split('T')[0];
+    const lastTimestampDate = timeArray[timeArray.length - 1].split('T')[0];
+    dateRangeVerified = firstTimestampDate === startDate && lastTimestampDate === endDate;
+  }
+
+  const requestedCoordinates: GeoCoordinates = { latitude, longitude };
+  const sourceCoordinates: GeoCoordinates = {
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    elevationMeters: raw.elevation,
+  };
 
   const paramMappings: {
     apiKey: keyof OpenMeteoArchiveResponse['hourly'];
@@ -180,9 +205,15 @@ export async function fetchHistoricalReanalysis(
     { apiKey: 'wind_direction_10m', code: 'wind_direction_10m', fallbackUnit: '°' },
   ];
 
+  let totalReturnedObservations = 0;
+
   for (const item of paramMappings) {
     const rawValues = raw.hourly?.[item.apiKey] as (number | null)[] | undefined;
     if (!rawValues || rawValues.length === 0) continue;
+
+    if (rawValues.length !== hourlyArrayLength) {
+      arrayAlignmentVerified = false;
+    }
 
     const paramDef = getParameterByCode(item.code);
     const unit = raw.hourly_units?.[item.apiKey] || paramDef?.unit || item.fallbackUnit;
@@ -191,6 +222,7 @@ export async function fetchHistoricalReanalysis(
       const v = rawValues[idx];
       const validValue =
         typeof v === 'number' && !Number.isNaN(v) && v !== null ? v : null;
+      if (validValue !== null) totalReturnedObservations++;
       return {
         timestamp: `${t}:00Z`,
         value: validValue,
@@ -207,6 +239,8 @@ export async function fetchHistoricalReanalysis(
         modality: 'REANALYSIS' as DataModality,
         unit,
         timeStandard: 'UTC',
+        requestedCoordinates,
+        sourceCoordinates,
         points,
       };
     }
@@ -224,6 +258,7 @@ export async function fetchHistoricalReanalysis(
     }
 
     if (lastNonNullVal !== null && lastNonNullTime !== null) {
+      const qualityStatus = evaluateQualityStatus(lastNonNullVal, item.code);
       observations.push({
         id: `om-archive-${model}-${item.code}-${lastNonNullTime}`,
         sourceId: 'open-meteo-archive',
@@ -234,11 +269,13 @@ export async function fetchHistoricalReanalysis(
         unit,
         latitude: raw.latitude,
         longitude: raw.longitude,
+        requestedCoordinates,
+        sourceCoordinates,
         observedAt: lastNonNullTime,
         fetchedAt,
         timeStandard: 'UTC',
         modality: 'REANALYSIS',
-        qualityStatus: 'verified',
+        qualityStatus,
         elevationMeters: raw.elevation,
       });
     }
@@ -248,6 +285,8 @@ export async function fetchHistoricalReanalysis(
     latitude: raw.latitude,
     longitude: raw.longitude,
     elevationMeters: raw.elevation,
+    requestedCoordinates,
+    sourceCoordinates,
     model,
     modelDisplayName,
     startDate,
@@ -257,6 +296,10 @@ export async function fetchHistoricalReanalysis(
     datasets,
     observations,
     fetchedAt,
+    totalReturnedObservations,
+    hourlyArrayLength,
+    arrayAlignmentVerified,
+    dateRangeVerified,
     rawResponse: raw,
   };
 
